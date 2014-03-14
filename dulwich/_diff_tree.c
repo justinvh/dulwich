@@ -19,6 +19,7 @@
 
 #include <Python.h>
 #include <sys/stat.h>
+#include "_compat.h"
 
 #ifdef _MSC_VER
 typedef unsigned short mode_t;
@@ -104,7 +105,7 @@ static PyObject **tree_entries(char *path, Py_ssize_t path_len, PyObject *tree,
 		if (!sha)
 			goto error;
 		name = PyTuple_GET_ITEM(old_entry, 0);
-		name_len = PyString_Size(name);
+		name_len = PyBytes_Size(name);
 		if (PyErr_Occurred())
 			goto error;
 
@@ -119,9 +120,9 @@ static PyObject **tree_entries(char *path, Py_ssize_t path_len, PyObject *tree,
 		if (path_len) {
 			memcpy(new_path, path, path_len);
 			new_path[path_len] = '/';
-			memcpy(new_path + path_len + 1, PyString_AS_STRING(name), name_len);
+			memcpy(new_path + path_len + 1, Text_Buffer(name), name_len);
 		} else {
-			memcpy(new_path, PyString_AS_STRING(name), name_len);
+			memcpy(new_path, Text_Buffer(name), name_len);
 		}
 
 		result[i] = PyObject_CallFunction(tree_entry_cls, "s#OO", new_path,
@@ -165,7 +166,7 @@ static int entry_path_cmp(PyObject *entry1, PyObject *entry2)
 		goto done;
 	}
 
-	result = strcmp(PyString_AS_STRING(path1), PyString_AS_STRING(path2));
+	result = strcmp(Text_Buffer(path1), Text_Buffer(path2));
 
 done:
 	Py_XDECREF(path1);
@@ -390,12 +391,32 @@ static PyMethodDef py_diff_tree_methods[] = {
 	{ NULL, NULL, 0, NULL }
 };
 
-PyMODINIT_FUNC
-init_diff_tree(void)
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef moduledef = {
+	PyModuleDef_HEAD_INIT,
+	"_diff_tree",
+	"Diff Tree Module",
+	-1,
+	py_diff_tree_methods,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+};
+#endif
+
+static PyObject *
+module_init_diff_tree(void)
 {
 	PyObject *m, *objects_mod = NULL, *diff_tree_mod = NULL;
         PyObject *block_size_obj = NULL;
-	m = Py_InitModule("_diff_tree", py_diff_tree_methods);
+
+#if PY_MAJOR_VERSION >= 3
+	m = PyModule_Create(&moduledef);
+#else
+	m = Py_InitModule3("_diff_tree", py_diff_tree_methods, "Diff Tree Module");
+#endif
+
 	if (!m)
 		goto error;
 
@@ -437,7 +458,7 @@ init_diff_tree(void)
 	}
 
 	Py_DECREF(diff_tree_mod);
-	return;
+	return m;
 
 error:
 	Py_XDECREF(objects_mod);
@@ -446,5 +467,17 @@ error:
 	Py_XDECREF(block_size_obj);
 	Py_XDECREF(defaultdict_cls);
 	Py_XDECREF(int_cls);
-	return;
+	return NULL;
 }
+
+#if PY_MAJOR_VERSION < 3
+PyMODINIT_FUNC init_diff_tree(void)
+{
+	module_init_diff_tree();
+}
+#else
+PyMODINIT_FUNC PyInit_diff_tree(void)
+{
+	return module_init_diff_tree();
+}
+#endif

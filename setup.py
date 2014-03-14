@@ -9,6 +9,7 @@ except ImportError:
     from distutils.core import setup, Extension
     has_setuptools = False
 from distutils.core import Distribution
+from dulwich import six
 
 dulwich_version_string = '0.9.6'
 
@@ -45,8 +46,9 @@ if sys.platform == 'darwin' and os.path.exists('/usr/bin/xcodebuild'):
     out, err = p.communicate()
     for l in out.splitlines():
         # Also parse only first digit, because 3.2.1 can't be parsed nicely
-        if l.startswith('Xcode') and int(l.split()[1].split('.')[0]) >= 4:
-            os.environ['ARCHFLAGS'] = ''
+        if l.startswith(six.b('Xcode')):
+            if int(l.split()[1].split(six.b('.'))[0]) >= 4:
+                os.environ['ARCHFLAGS'] = ''
 
 setup_kwargs = {}
 
@@ -68,11 +70,12 @@ setup(name='dulwich',
       All functionality is available in pure Python. Optional
       C extensions can be built for improved performance.
 
-      The project is named after the part of London that Mr. and Mrs. Git live in
-      in the particular Monty Python sketch.
+      The project is named after the part of London that Mr. and Mrs.
+      Git live in in the particular Monty Python sketch.
       """,
       packages=['dulwich', 'dulwich.tests', 'dulwich.tests.compat'],
-      scripts=['bin/dulwich', 'bin/dul-daemon', 'bin/dul-web', 'bin/dul-receive-pack', 'bin/dul-upload-pack'],
+      scripts=['bin/dulwich', 'bin/dul-daemon', 'bin/dul-web',
+               'bin/dul-receive-pack', 'bin/dul-upload-pack'],
       ext_modules=[
           Extension('dulwich._objects', ['dulwich/_objects.c'],
                     include_dirs=include_dirs),

@@ -20,6 +20,12 @@
 #include <Python.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include "_compat.h"
+
+#ifndef PyVarObject_HEAD_INIT
+	#define PyVarObject_HEAD_INIT(type, size) \
+		PyObject_HEAD_INIT(type) size,
+#endif
 
 #if (PY_VERSION_HEX < 0x02050000)
 typedef int Py_ssize_t;
@@ -104,7 +110,7 @@ static PyObject *py_parse_tree(PyObject *self, PyObject *args, PyObject *kw)
 			Py_DECREF(name);
 			return NULL;
 		}
-		item = Py_BuildValue("(NlN)", name, mode, sha); 
+		item = Py_BuildValue("(NlN)", name, mode, sha);
 		if (item == NULL) {
 			Py_DECREF(ret);
 			Py_DECREF(sha);
@@ -188,7 +194,7 @@ static PyObject *py_sorted_tree_items(PyObject *self, PyObject *args)
 	}
 
 	while (PyDict_Next(entries, &pos, &key, &value)) {
-		if (!PyString_Check(key)) {
+		if (!Text_Check(key)) {
 			PyErr_SetString(PyExc_TypeError, "Name is not a string");
 			goto error;
 		}
@@ -205,11 +211,11 @@ static PyObject *py_sorted_tree_items(PyObject *self, PyObject *args)
 		}
 
 		py_sha = PyTuple_GET_ITEM(value, 1);
-		if (!PyString_Check(py_sha)) {
+		if (!Text_Check(py_sha)) {
 			PyErr_SetString(PyExc_TypeError, "SHA is not a string");
 			goto error;
 		}
-		qsort_entries[n].name = PyString_AS_STRING(key);
+		qsort_entries[n].name = Text_Buffer(key);
 		qsort_entries[n].mode = PyInt_AS_LONG(py_mode);
 
 		qsort_entries[n].tuple = PyObject_CallFunctionObjArgs(
@@ -248,34 +254,66 @@ static PyMethodDef py_objects_methods[] = {
 	{ NULL, NULL, 0, NULL }
 };
 
-PyMODINIT_FUNC
-init_objects(void)
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef moduledef = {
+	PyModuleDef_HEAD_INIT,
+	"_objects",
+	"Object Module",
+	-1,
+	py_objects_methods,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+};
+#endif
+
+static PyObject *
+module_init_objects(void)
 {
 	PyObject *m, *objects_mod, *errors_mod;
 
-	m = Py_InitModule3("_objects", py_objects_methods, NULL);
-	if (m == NULL)
-		return;
+#if PY_MAJOR_VERSION >= 3
+	m = PyModule_Create(&moduledef);
+#else
+	m = Py_InitModule3("_objects", py_objects_methods, "Object Module");
+#endif
 
+	if (m == NULL)
+		return NULL;
 
 	errors_mod = PyImport_ImportModule("dulwich.errors");
 	if (errors_mod == NULL)
-		return;
+		return NULL;
 
 	object_format_exception_cls = PyObject_GetAttrString(
 		errors_mod, "ObjectFormatException");
 	Py_DECREF(errors_mod);
 	if (object_format_exception_cls == NULL)
-		return;
+		return NULL;
 
 	/* This is a circular import but should be safe since this module is
 	 * imported at at the very bottom of objects.py. */
 	objects_mod = PyImport_ImportModule("dulwich.objects");
 	if (objects_mod == NULL)
-		return;
+		return NULL;
 
 	tree_entry_cls = PyObject_GetAttrString(objects_mod, "TreeEntry");
 	Py_DECREF(objects_mod);
 	if (tree_entry_cls == NULL)
-		return;
+		return NULL;
+
+	return m;
 }
+
+#if PY_MAJOR_VERSION < 3
+PyMODINIT_FUNC init_objects(void)
+{
+	module_init_objects();
+}
+#else
+PyMODINIT_FUNC PyInit_objects(void)
+{
+	return module_init_objects();
+}
+#endif

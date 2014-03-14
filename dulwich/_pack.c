@@ -1,16 +1,16 @@
-/* 
+/*
  * Copyright (C) 2009 Jelmer Vernooij <jelmer@samba.org>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; version 2
  * of the License or (at your option) a later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -19,13 +19,14 @@
 
 #include <Python.h>
 #include <stdint.h>
+#include "_compat.h"
 
 static int py_is_sha(PyObject *sha)
 {
-	if (!PyString_CheckExact(sha))
+	if (!PyBytes_CheckExact(sha))
 		return 0;
 
-	if (PyString_Size(sha) != 20)
+	if (PyBytes_Size(sha) != 20)
 		return 0;
 
 	return 1;
@@ -55,13 +56,13 @@ static PyObject *py_chunked_as_string(PyObject *py_buf)
 			PyErr_NoMemory();
 			return NULL;
 		}
-		py_buf = _PyString_Join(sep, py_buf);
+		py_buf = PyString_Join(sep, py_buf);
 		Py_DECREF(sep);
 		if (py_buf == NULL) {
 			PyErr_NoMemory();
 			return NULL;
 		}
-	} else if (PyString_Check(py_buf)) {
+	} else if (Text_Check(py_buf)) {
 		Py_INCREF(py_buf);
 	} else {
 		PyErr_SetString(PyExc_TypeError,
@@ -94,16 +95,16 @@ static PyObject *py_apply_delta(PyObject *self, PyObject *args)
 		return NULL;
 	}
 
-	src_buf = (uint8_t *)PyString_AS_STRING(py_src_buf);
-	src_buf_len = PyString_GET_SIZE(py_src_buf);
+	src_buf = (uint8_t *)Text_Buffer(py_src_buf);
+	src_buf_len = Text_Size(py_src_buf);
 
-	delta = (uint8_t *)PyString_AS_STRING(py_delta);
-	delta_len = PyString_GET_SIZE(py_delta);
+	delta = (uint8_t *)Text_Buffer(py_delta);
+	delta_len = Text_Size(py_delta);
 
 	index = 0;
 	src_size = get_delta_header_size(delta, &index, delta_len);
 	if (src_size != src_buf_len) {
-		PyErr_Format(PyExc_ValueError, 
+		PyErr_Format(PyExc_ValueError,
 					 "Unexpected source buffer size: %lu vs %d", src_size, src_buf_len);
 		Py_DECREF(py_src_buf);
 		Py_DECREF(py_delta);
@@ -117,7 +118,7 @@ static PyObject *py_apply_delta(PyObject *self, PyObject *args)
 		Py_DECREF(py_delta);
 		return NULL;
 	}
-	out = (uint8_t *)PyString_AsString(ret);
+	out = (uint8_t *)Text_Buffer(ret);
 	while (index < delta_len) {
 		char cmd = delta[index];
 		index++;
@@ -187,7 +188,7 @@ static PyObject *py_bisect_find_sha(PyObject *self, PyObject *args)
 	char *sha;
 	int sha_len;
 	int start, end;
-	if (!PyArg_ParseTuple(args, "iis#O", &start, &end, 
+	if (!PyArg_ParseTuple(args, "iis#O", &start, &end,
 						  &sha, &sha_len, &unpack_name))
 		return NULL;
 
@@ -213,7 +214,7 @@ static PyObject *py_bisect_find_sha(PyObject *self, PyObject *args)
 			Py_DECREF(file_sha);
 			return NULL;
 		}
-		cmp = memcmp(PyString_AsString(file_sha), sha, 20);
+		cmp = memcmp(Text_Buffer(file_sha), sha, 20);
 		Py_DECREF(file_sha);
 		if (cmp < 0)
 			start = i + 1;
@@ -226,18 +227,50 @@ static PyObject *py_bisect_find_sha(PyObject *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-
 static PyMethodDef py_pack_methods[] = {
 	{ "apply_delta", (PyCFunction)py_apply_delta, METH_VARARGS, NULL },
 	{ "bisect_find_sha", (PyCFunction)py_bisect_find_sha, METH_VARARGS, NULL },
 	{ NULL, NULL, 0, NULL }
 };
 
-void init_pack(void)
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef moduledef = {
+	PyModuleDef_HEAD_INIT,
+	"_pack",
+	"Pack Module",
+	-1,
+	py_pack_methods,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+};
+#endif
+
+static PyObject *
+module_init_pack(void)
 {
 	PyObject *m;
 
-	m = Py_InitModule3("_pack", py_pack_methods, NULL);
+#if PY_MAJOR_VERSION >= 3
+	m = PyModule_Create(&moduledef);
+#else
+	m = Py_InitModule3("_pack", py_pack_methods, "Pack Module");
+#endif
+
 	if (m == NULL)
-		return;
+		return NULL;
+    return m;
 }
+
+#if PY_MAJOR_VERSION < 3
+PyMODINIT_FUNC init_pack(void)
+{
+	module_init_pack();
+}
+#else
+PyMODINIT_FUNC PyInit_pack(void)
+{
+	return module_init_pack();
+}
+#endif
